@@ -10,7 +10,7 @@ using namespace std;
 class Receiver {
 
     public:
-        Receiver(uint8_t pin, uint8_t channel, uint32_t maxPulseWidth = 2000);
+        Receiver(uint8_t pin, uint32_t maxPulseWidth = 2000);
         ~Receiver();
 
         void start();
@@ -22,8 +22,8 @@ class Receiver {
         void handlePWM();
 
     private:
-        uint8_t m_channel;
         uint8_t m_pin;
+        uint8_t m_channel;
         uint32_t m_maxPulseWidth;
 
         volatile uint32_t m_startTime;

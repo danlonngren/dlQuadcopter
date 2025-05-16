@@ -4,12 +4,14 @@
 
 using namespace std;
 
-Receiver::Receiver(uint8_t pin, uint8_t channel, uint32_t maxPulseWidth) :
+// Define the static member variable
+Receiver* Receiver::m_instance = nullptr;
+
+Receiver::Receiver(uint8_t pin, uint32_t maxPulseWidth) :
     m_pin(pin),
-    m_channel(channel),
-    m_pulseWidth(0),
+    m_maxPulseWidth(maxPulseWidth),
     m_startTime(0),
-    m_maxPulseWidth(maxPulseWidth) {
+    m_pulseWidth(0) {
 
     // Set the static instance to this object
     m_instance = this;
@@ -22,14 +24,9 @@ Receiver::~Receiver() {
 
 void Receiver::start() {
     // Start the receiver
-    uint32_t pinInt = digitalPinToInterrupt(m_pin);
-    if (pinInt == NOT_AN_INTERRUPT) {
-        Serial.println("Error: Pin " + String(m_pin) + " is not a valid interrupt pin.");
-    }
-    else {
-        pinMode(m_pin, INPUT);
-        attachInterrupt(pinInt, Receiver::receiverISR, CHANGE);
-    }
+
+    pinMode(m_pin, INPUT);
+    attachInterrupt(digitalPinToInterrupt(m_pin), Receiver::receiverISR, CHANGE);
 }
 
 uint32_t Receiver::getPulseWidth() const {
@@ -41,7 +38,7 @@ uint32_t Receiver::getPulseWidth() const {
 
 void Receiver::handlePWM() {
     unsigned long currentTime = micros();
-    int pinState = digitalReadFast(m_pin);
+    int pinState = digitalRead(m_pin);
     
     if (pinState == HIGH) {
         m_startTime = currentTime;

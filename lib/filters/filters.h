@@ -2,9 +2,12 @@
 #define FILTERS_H
 
 // Low-pass filter function
-static inline float LowPassFilter(float input, float *output, float alpha) {
-    *output += alpha * (input - *output);
-    return *output;
+static inline float lowPassFilter(float current, float previous, float alpha) {
+    return alpha * current + (1 - alpha) * previous;
+}
+
+static inline float highPassFilter(float x, float x_prev, float y_prev, float alpha) {
+    return alpha * (y_prev + x - x_prev);
 }
 
 // Moving average filter function

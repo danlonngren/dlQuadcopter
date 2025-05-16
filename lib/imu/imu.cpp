@@ -1,146 +1,166 @@
 #include "imu.h"
 
 // Arduino includes
-#include <Wire.h>
+#include <math.h>
+#include <Arduino.h>
 
 // Lib includes
 #include "filters.h"
+#include "MPU9250RegisterMap.h"
 
 // Constants
 #define MPU6050 0x68
-#define FILTER_SNAP 0.01f
+// #define MPU6050 0xE8
+// #define MPU6050 0x80
+#define FILTER_SNAP 0.99f
 
-imu::imu() :
+const float IMU_GYRO_RES_500 = 65.5f;
+const float IMU_ACC_RES_8 = 4096.0f;
+const float IMU_DEG_TO_RAD = 0.0174533f;
+
+Imu::Imu() :
     m_imuAddress(MPU6050),
-    m_axis_cal{50, -30, -4},
-    m_roll_adjust(0),
-    m_pitch_adjust(0),
+    m_axisCalibration{0.0, 0.0, 0.0},
     m_attitude{0}
 {
-    Wire.begin();
-    Wire.setClock(400000L);
-    Wire.beginTransmission(m_imuAddress);
-    Wire.write(0x6B); // PWR_MGMT_1 register (6B hex)
-    Wire.write(0x00); // activate
-    Wire.endTransmission();
+    m_wire = &Wire;
+    m_wire->begin();
+    m_wire->setClock(400000L);
 
-    Wire.beginTransmission(m_imuAddress);
-    Wire.write(0x1B); // gyro dps register
-    Wire.write(0x08); // 00001000 (500dps scale)
-    Wire.endTransmission();
+    writeRegister(m_imuAddress, PWR_MGMT_1, 0x00); // activate
+    writeRegister(m_imuAddress, GYRO_CONFIG, 0x08); // Gyro 500dps 65.5
+    writeRegister(m_imuAddress, ACCEL_CONFIG, 0x10); // Accel 8g 4096
+    writeRegister(m_imuAddress, 0x1A, 0x00); // Set Digital Low Pass Filter to ~43Hz
 
-    Wire.beginTransmission(m_imuAddress);
-    Wire.write(0x1C); // accelerometer sensisitivity register
-    Wire.write(0x10); // 00010000  (8g full scale range)
-    Wire.endTransmission();
-
-    Wire.beginTransmission(m_imuAddress);
-    Wire.write(0x1A); //
-    Wire.write(0x00); //(Set Digital Low Pass Filter to ~43Hz)
-    Wire.endTransmission();
+    for (int i = 0; i < 250; i++)
+    {
+        uint8_t out = 0;
+        readRegister(i, WHO_AM_I_MPU9250, &out); // Accel 8g 4096
+        Serial.print("MPU9250 WHO_AM_I: 0x");
+        Serial.print(i, HEX);
+        Serial.print(" = 0x");
+        Serial.println(out, HEX);
+    }
 }
 
-void imu::updateAttitude()
+void Imu::updateAttitude()
 {
-    int new_raw_axis[6] = {0};
+    imu_data prevGyroInput = m_gyroData;
+    imu_data oldAccelData = m_accelData;
 
-    getRawImuData(new_raw_axis);
+    // Get raw gyro and accel data
+    updateGyroAccelData();
+
+    for (int i = 0; i < 3; i++)
+    {
+        m_accelData.axis[i] = lowPassFilter(m_accelData.axis[i], oldAccelData.axis[i], 0.999f);    
+        m_gyroData.axis[i] = highPassFilter(m_gyroData.axis[i], prevGyroInput.axis[i], m_prevGyroOutput.axis[i], 0.9f);
+        m_prevGyroOutput.axis[i] = m_gyroData.axis[i];
+    }
     
     // Adjust for calibration
-    new_raw_axis[3] -= m_axis_cal.axis[0];                            
-    new_raw_axis[4] -= m_axis_cal.axis[1];                          
-    new_raw_axis[5] -= m_axis_cal.axis[2];                            
+    m_gyroData.axis[0] -= m_axisCalibration.axis[0];                            
+    m_gyroData.axis[1] -= m_axisCalibration.axis[1];                          
+    m_gyroData.axis[2] -= m_axisCalibration.axis[2];                            
 
-    LowPassFilter(new_raw_axis[0], &m_raw_axis[0], FILTER_SNAP); // X
-    LowPassFilter(new_raw_axis[1], &m_raw_axis[1], FILTER_SNAP); // Y
-    LowPassFilter(new_raw_axis[2], &m_raw_axis[2], FILTER_SNAP); // Z
-    LowPassFilter(new_raw_axis[3], &m_raw_axis[3], FILTER_SNAP); // Pitch
-    LowPassFilter(new_raw_axis[4], &m_raw_axis[4], FILTER_SNAP); // Roll
-    LowPassFilter(new_raw_axis[5], &m_raw_axis[5], FILTER_SNAP); // Yaw
+    unsigned long now = millis();
+    float dt = (now - m_lastTime) / 1000.0;
+    m_lastTime = now;
 
-    calculateAngle( m_raw_axis[4] / 65.5,
-                    m_raw_axis[3] / 65.5,
-                    m_raw_axis[5] / 65.5 * (-1),
-                    m_raw_axis[0], 
-                    m_raw_axis[1], 
-                    m_raw_axis[2] * (-1));
+    calculateAngle(&m_gyroData, &m_accelData, dt);
 }
 
-void imu::getRawImuData(int* dataOut)
+void Imu::calculateAngle(imu_data *gyroData, imu_data *accelData, unsigned long dt)
 {
-    if (!dataOut)
-        return;
+    float x = accelData->xyz.x;
+    float y = accelData->xyz.y;
+    float z = accelData->xyz.z;
 
-    // Read 14 bytes of data starting from register 0x3B
-    // 0x3B: ACCEL_XOUT_H
-    Wire.beginTransmission(m_imuAddress);
-    Wire.write(0x3B);
-    Wire.endTransmission();
-    Wire.requestFrom(m_imuAddress, (uint8_t)14);
+    float pitch_acc = atan2(y, sqrt((x * x) + (z * z))) * 180.0f / PI;
+    float roll_acc = atan2(-x, z) * 180.0f / PI;
 
-    while (Wire.available() < 14);
-    // Accelerometer
-    dataOut[0] = Wire.read() << 8 | Wire.read(); // x
-    dataOut[1] = Wire.read() << 8 | Wire.read(); // y
-    dataOut[2] = Wire.read() << 8 | Wire.read(); // z
-    int temperature = Wire.read() << 8 | Wire.read();
-    (void)temperature;
-    // Gyroscope
-    dataOut[3] = Wire.read() << 8 | Wire.read(); // Pitch
-    dataOut[4] = Wire.read() << 8 | Wire.read(); // Roll
-    dataOut[5] = Wire.read() << 8 | Wire.read(); // Yaw
+    float alpha = 0.97f;
+    m_attitude.rpy.pitch = alpha * (m_attitude.rpy.pitch + gyroData->xyz.x * dt) + (1 - alpha) * pitch_acc;
+    m_attitude.rpy.roll  = alpha * (m_attitude.rpy.roll - gyroData->xyz.y * dt) + (1 - alpha) * roll_acc;
+    m_attitude.rpy.yaw = gyroData->rpy.yaw;
 }
 
-void imu::calculateAngle(float roll, float m_pitch, float m_yaw, float x, float y, float z)
+void Imu::updateGyroAccelData()
 {
-    m_attitude.rpy.roll += roll * 0.0000611;
-    m_attitude.rpy.pitch += m_pitch * 0.0000611;
+    int16_t dataOut[7];
 
-    m_attitude.rpy.pitch -= m_attitude.rpy.roll * sin(m_yaw * 0.000001066);
-    m_attitude.rpy.roll += m_attitude.rpy.pitch * sin(m_yaw * 0.000001066);
-
-    float acc_vector = sqrt((x * x) + (y * y) + (z * z));
-
-    float pitch_acc = 0.0f;
-    float roll_acc = 0.0f;
-    if (abs(y) < acc_vector)
-    {
-        pitch_acc = asin((float)y / acc_vector) * 57.296;
-    }
-
-    if (abs(x) < acc_vector)
-    {
-        roll_acc = asin((float)x / acc_vector) * -57.296;
-    }
-
-    pitch_acc -= 1.0; // 1.0;
-    roll_acc -= -1.0; // -1.0;
-
-    m_attitude.rpy.pitch = m_attitude.rpy.pitch * 0.9995 + pitch_acc * 0.0005;
-    m_attitude.rpy.roll = m_attitude.rpy.roll * 0.9995 + roll_acc * 0.0005;
-    m_attitude.rpy.yaw = m_yaw;
-
-    m_pitch_adjust = m_attitude.rpy.pitch * 15.0;
-    m_roll_adjust = m_attitude.rpy.roll * 15.0;
+    getRawGyroAccelData(dataOut);
+    
+    m_accelData.xyz.x = ((float)dataOut[0]) / IMU_ACC_RES_8;
+    m_accelData.xyz.y = ((float)dataOut[1]) / IMU_ACC_RES_8;
+    m_accelData.xyz.z = ((float)dataOut[2]) / IMU_ACC_RES_8;
+    m_temperatureCelcius = ((uint16_t)dataOut[3] - 521) / 340 + 36.53; // Convert to Celsius
+    m_gyroData.xyz.x = ((float)dataOut[4]) / IMU_GYRO_RES_500; // * IMU_DEG_TO_RAD;
+    m_gyroData.xyz.y = ((float)dataOut[5]) / IMU_GYRO_RES_500; // * IMU_DEG_TO_RAD;
+    m_gyroData.xyz.z = ((float)dataOut[6]) / IMU_GYRO_RES_500; // * IMU_DEG_TO_RAD;
 }
 
-void imu::calibrate(int num_samples)
+void Imu::getRawGyroAccelData(int16_t *rawGyroAccelData)
 {
-    m_axis_cal.axis[0] = 0;
-    m_axis_cal.axis[1] = 0;
-    m_axis_cal.axis[2] = 0;
+    uint8_t rawDataOut[14];
+
+    // Get raw gyro and accel data
+    readRegister(m_imuAddress, ACCEL_XOUT_H, rawDataOut, 14);
+    rawGyroAccelData[0] = (int16_t)rawDataOut[0] << 8 | (int16_t)rawDataOut[1];    // Accel x
+    rawGyroAccelData[1] = (int16_t)rawDataOut[2] << 8 | (int16_t)rawDataOut[3];    // Accel y
+    rawGyroAccelData[2] = (int16_t)rawDataOut[4] << 8 | (int16_t)rawDataOut[5];    // Accel z
+    rawGyroAccelData[3] = (int16_t)rawDataOut[6] << 8 | (int16_t)rawDataOut[7];    // Temp
+    rawGyroAccelData[4] = (int16_t)rawDataOut[8] << 8 | (int16_t)rawDataOut[9];    // Gyro x
+    rawGyroAccelData[5] = (int16_t)rawDataOut[10] << 8 | (int16_t)rawDataOut[11];  // Gyro y
+    rawGyroAccelData[6] = (int16_t)rawDataOut[12] << 8 | (int16_t)rawDataOut[13];  // Gyro z
+}
+
+void Imu::calibrate(int num_samples)
+{
+    m_axisCalibration.axis[0] = 0;
+    m_axisCalibration.axis[1] = 0;
+    m_axisCalibration.axis[2] = 0;
 
     for (int cal_int = 0; cal_int < num_samples; cal_int++)
     {
-        //    if (cal_int % 15 == 0)digitalWriteFast(led, !digitalReadFast(led));
-        int raw_axis[6] = {0};
-        getRawImuData(raw_axis);
-        m_axis_cal.axis[0] += raw_axis[1];
-        m_axis_cal.axis[0] += raw_axis[2];
-        m_axis_cal.axis[0] += raw_axis[3];
-        delay(300);
+        int16_t data[7];
+        getRawGyroAccelData(data);
+        m_axisCalibration.axis[0] += data[0];
+        m_axisCalibration.axis[1] += data[1];
+        m_axisCalibration.axis[2] += data[2];
+        delay(100);
     }
-    m_axis_cal.axis[0] /= num_samples;
-    m_axis_cal.axis[0] /= num_samples;
-    m_axis_cal.axis[0] /= num_samples;
+    m_axisCalibration.axis[0] /= num_samples;
+    m_axisCalibration.axis[0] /= num_samples;
+    m_axisCalibration.axis[0] /= num_samples;
+}
+
+void Imu::writeRegister(uint8_t addr, uint8_t reg, uint8_t value)
+{
+    m_wire->beginTransmission(m_imuAddress);
+    m_wire->write(reg);
+    m_wire->write(value);
+    m_wire->endTransmission(true);
+}
+
+void Imu::readRegister(uint8_t addr, uint8_t reg, uint8_t *value)
+{
+    m_wire->beginTransmission(addr);
+    m_wire->write(reg);
+    m_wire->endTransmission(false);
+    m_wire->requestFrom(addr, (uint8_t)1);
+    if (m_wire->available()) *value = m_wire->read();
+}
+
+void Imu::readRegister(uint8_t addr, uint8_t reg, uint8_t *value, uint8_t length)
+{
+    m_wire->beginTransmission(m_imuAddress);
+    m_wire->write(reg);
+    m_wire->endTransmission(false);
+    m_wire->requestFrom(m_imuAddress, length);
+    uint8_t i = 0;
+    while (m_wire->available())
+    {
+        value[i++] = m_wire->read();
+    }
 }

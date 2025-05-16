@@ -24,15 +24,23 @@ Imu::Imu() :
     m_attitude{0}
 {
 
-    // Setup MPU9250
     m_wire = &Wire;
     m_wire->begin();
     m_wire->setClock(400000L);
+    
+    // Setup MPU9250
+    writeRegister(m_imuAddress, PWR_MGMT_1, 0x00);      // activate
+    writeRegister(m_imuAddress, GYRO_CONFIG, 0x08);     // Gyro 500dps 65.5
+    writeRegister(m_imuAddress, ACCEL_CONFIG, 0x10);    // Accel 8g 4096
+    writeRegister(m_imuAddress, MPU_CONFIG, 0x00);      // Set Digital Low Pass Filter to ~43Hz
+    
+    writeRegister(m_imuAddress, USER_CTRL, 0x20); 
+    writeRegister(m_imuAddress, I2C_MST_CTRL, 0x0D); // I2C Master mode, 400kHz
 
-    writeRegister(m_imuAddress, PWR_MGMT_1, 0x00); // activate
-    writeRegister(m_imuAddress, GYRO_CONFIG, 0x08); // Gyro 500dps 65.5
-    writeRegister(m_imuAddress, ACCEL_CONFIG, 0x10); // Accel 8g 4096
-    writeRegister(m_imuAddress, 0x1A, 0x00); // Set Digital Low Pass Filter to ~43Hz
+
+    // Setup magnetometer
+    writeRegister(AK8963_ADDRESS, AK8963_CNTL, 0x00); // Power down
+    writeRegister(AK8963_ADDRESS, AK8963_CNTL, 0x16); // Set to 16 bit mode
 }
 
 const imuData& Imu::updateAttitude()
@@ -42,6 +50,11 @@ const imuData& Imu::updateAttitude()
 
     // Get raw gyro and accel data
     updateGyroAccelData();
+    updateMagnetometerData();
+
+    unsigned long now = millis();
+    float dt = (now - lastTime) / 1000.0;
+    lastTime = now;
 
     for (int i = 0; i < 3; i++)
     {
@@ -56,22 +69,28 @@ const imuData& Imu::updateAttitude()
     m_gyroData.axis[1] -= m_axisCalibration.axis[1];                        
     m_gyroData.axis[2] -= m_axisCalibration.axis[2];                          
 
-    float pitch_acc = calculatePitchAccel(m_accelData);
-    float roll_acc  = calculateRollAccel(m_accelData);
+    float pitchAccel = calculatePitchAccel(m_accelData);
+    float rollAccel  = calculateRollAccel(m_accelData);
 
-    unsigned long now = millis();
-    float dt = (now - lastTime) / 1000.0;
-    lastTime = now;
+    // Calc tilt compensation
+    float sinRoll = sin(rollAccel);
+    float sinPitch = sin(pitchAccel);
+    float cosRoll = cos(rollAccel);
+    float cosPitch = cos(pitchAccel);
+
+    float mxh = m_magData.xyz.x * cosPitch + m_magData.xyz.z * sinPitch;
+    float myh = m_magData.xyz.x * sinRoll * sinPitch + m_magData.xyz.y * cosRoll - m_magData.xyz.z * sinRoll * cosPitch;
+    float magYaw = atan2(-myh, mxh);
 
 #if 1
     // Kalman filter for pitch and roll
-    m_attitude.rpy.pitch = kalmanPitch.update(pitch_acc, m_gyroData.axis[0], dt);
-    m_attitude.rpy.roll  = kalmanRoll.update(roll_acc, m_gyroData.axis[1], dt);
-    m_attitude.rpy.yaw   = m_gyroData.rpy.yaw;
+    m_attitude.rpy.pitch = kalmanPitch.update(pitchAccel, m_gyroData.axis[0], dt);
+    m_attitude.rpy.roll  = kalmanRoll.update(rollAccel, m_gyroData.axis[1], dt);
+    m_attitude.rpy.yaw  = kalmanYaw.update(magYaw, m_gyroData.axis[2], dt);
 #else
     float alpha = 0.97f;
-    m_attitude.rpy.pitch = alpha * (m_attitude.rpy.pitch + m_gyroData.xyz.x * dt) + (1 - alpha) * pitch_acc;
-    m_attitude.rpy.roll  = alpha * (m_attitude.rpy.roll - m_gyroData.xyz.y * dt) + (1 - alpha) * roll_acc;
+    m_attitude.rpy.pitch = alpha * (m_attitude.rpy.pitch + m_gyroData.xyz.x * dt) + (1 - alpha) * pitchAccel;
+    m_attitude.rpy.roll  = alpha * (m_attitude.rpy.roll - m_gyroData.xyz.y * dt) + (1 - alpha) * rollAccel;
     m_attitude.rpy.yaw = m_gyroData->rpy.yaw;
 #endif
 
@@ -99,16 +118,6 @@ void Imu::calibrate(int num_samples)
 }
 
 ///////////////////////////////////////////////////////////////////////////
-float Imu::calculatePitchAccel(const imuData& a)
-{
-    return atan2(a.xyz.y, sqrt((a.xyz.x * a.xyz.x) + (a.xyz.z * a.xyz.z))) * 180.0f / PI;
-}
-
-float Imu::calculateRollAccel(const imuData& a)
-{
-    return atan2(-a.xyz.x, a.xyz.z) * 180.0f / PI;
-}
-
 void Imu::updateGyroAccelData()
 {
     int16_t dataOut[7];
@@ -136,6 +145,52 @@ void Imu::getRawGyroAccelData(int16_t *rawGyroAccelData)
     rawGyroAccelData[6] = (int16_t)rawDataOut[12] << 8 | (int16_t)rawDataOut[13];  // Gyro z
 }
 
+void Imu::updateMagnetometerData()
+{
+    int16_t rawMagnetometerData[3];
+    getMagnetometerData(rawMagnetometerData);
+    m_magData.xyz.x = ((float)rawMagnetometerData[0]) / 0.15f; // 0.15uT/LSB
+    m_magData.xyz.y = ((float)rawMagnetometerData[1]) / 0.15f; // 0.15uT/LSB
+    m_magData.xyz.z = ((float)rawMagnetometerData[2]) / 0.15f; // 0.15uT/LSB
+}
+
+void Imu::getMagnetometerData(int16_t *rawMagnetometerData)
+{
+    uint8_t rawDataOut[7];
+    // Get raw magnetometer data
+    readAK8963Registers(AK8963_ST1, rawDataOut, 7);
+    rawMagnetometerData[0] = (int16_t)rawDataOut[0] << 8 | (int16_t)rawDataOut[1];    // Mag x
+    rawMagnetometerData[1] = (int16_t)rawDataOut[2] << 8 | (int16_t)rawDataOut[3];    // Mag y
+    rawMagnetometerData[2] = (int16_t)rawDataOut[4] << 8 | (int16_t)rawDataOut[5];    // Mag z
+}
+
+float Imu::calculatePitchAccel(const imuData& a)
+{
+    return atan2(a.xyz.y, sqrt((a.xyz.x * a.xyz.x) + (a.xyz.z * a.xyz.z))) * 180.0f / PI;
+}
+
+float Imu::calculateRollAccel(const imuData& a)
+{
+    return atan2(-a.xyz.x, a.xyz.z) * 180.0f / PI;
+}
+
+///////////////////////////////////////////////////////////////////////////
+void Imu::writeAK8963Register(uint8_t reg, uint8_t value)
+{
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_ADDR, AK8963_ADDRESS);
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_REG, reg);
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_CTRL, 0x81); // 1 byte read
+    writeRegister(AK8963_ADDRESS, 0x63, value);
+}
+
+void Imu::readAK8963Registers(uint8_t reg, uint8_t *value, uint8_t count)
+{
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_ADDR, AK8963_ADDRESS);
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_REG, reg);
+    writeRegister(AK8963_ADDRESS, I2C_SLV0_CTRL, 0x80 | count); // 1 byte read
+    readRegister(AK8963_ADDRESS, EXT_SENS_DATA_00, value, count);
+}
+
 ///////////////////////////////////////////////////////////////////////////
 void Imu::writeRegister(uint8_t addr, uint8_t reg, uint8_t value)
 {
@@ -143,15 +198,6 @@ void Imu::writeRegister(uint8_t addr, uint8_t reg, uint8_t value)
     m_wire->write(reg);
     m_wire->write(value);
     m_wire->endTransmission(true);
-}
-
-void Imu::readRegister(uint8_t addr, uint8_t reg, uint8_t *value)
-{
-    m_wire->beginTransmission(addr);
-    m_wire->write(reg);
-    m_wire->endTransmission(false);
-    m_wire->requestFrom(addr, (uint8_t)1);
-    if (m_wire->available()) *value = m_wire->read();
 }
 
 void Imu::readRegister(uint8_t addr, uint8_t reg, uint8_t *value, uint8_t length)

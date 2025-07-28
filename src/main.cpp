@@ -8,6 +8,8 @@
 #include "receiver.h"
 #include "motor.h"
 
+#include "controller.h"
+
 // #include "Adafruit_TinyUSB.h"
 
 void setup()
@@ -25,28 +27,15 @@ void setup()
 	Serial.println("Serial port connected");
 }
 
-void loop()
-{
+void loop() {
 	Serial.println("Entering loop");
 	
-	Serial.println("calibrate");
 	Imu myImu;			   // Create an instance of the imu class
-	// myImu.calibrate(20); // Call the Calibrate method to calibrate the MPU6050
-	
-	Serial.println("receiver1");
-	// Receiver receiver1(3); // Create an instance of the Receiver class
-	// receiver1.start(); // Start the receiver
-	
-	// Serial.println("motor1");
-	// Motor motor1(6, 1000.0, Motor::PwmResolution::PWM_8BIT); // Create an instance of the Motor class
-	// motor1.setMotorSpeed(80); // Set the motor speed to 50%
+	Receiver receiver(3); // Create an instance of the Receiver class
+	std::array<Motor, 4> motors = { Motor(1), Motor(2), Motor(3), Motor(4) };
+	Controller controller(myImu, receiver, motors);
 
 	while(true) {
-		// Main loop
-		// uint32_t pulseWidth = receiver1.getPulseWidth(); // Get the pulse width from the receiver
-		// Serial.print("Pulse Width: ");
-		// Serial.println(pulseWidth); // Print the pulse width to the serial monitor
-
 		myImu.updateAttitude(); // Update the IMU data
 		float roll = myImu.getAttitude().rpy.roll; // Get the roll value from the IMU
 		float pitch = myImu.getAttitude().rpy.pitch; // Get the pitch value from the IMU

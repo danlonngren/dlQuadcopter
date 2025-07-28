@@ -1,6 +1,25 @@
 #ifndef controller_h
 #define controller_h
 
+// Components
+#include "imu.h"
+#include "motor.h"
+#include "receiver.h"
+
+// Main control algorithm
+class Controller {
+public:
+	Controller(Imu& imuRef, Receiver& receiverRef, std::array<Motor, 4>& motor);
+
+	void startMainLoop();
+private:
+	bool m_isRunning;
+	Imu& m_imu;
+  Receiver& m_receiver;
+	std::array<Motor, 4>& m_motors;
+};
+
+
 class PID {
   private:
     float pid_output;

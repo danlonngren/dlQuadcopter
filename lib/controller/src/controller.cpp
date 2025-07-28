@@ -1,5 +1,28 @@
 #include "controller.h"
+#include <Arduino.h>
 
+
+// --- Controller ---
+Controller::Controller(Imu& imuRef, Receiver& receiverRef, std::array<Motor, 4>& motor) :
+		m_isRunning(false), 
+		m_imu(imuRef), 
+		m_receiver(receiverRef),
+		m_motors(motor) {
+	
+}
+
+void Controller::startMainLoop() {
+
+	while (m_isRunning) {
+		m_imu.updateAttitude();
+
+
+		delay(200);
+	}
+
+}
+
+// --- PID ---
 static float limiter(float in, float max, float min)
 {
 	if (in >= max)

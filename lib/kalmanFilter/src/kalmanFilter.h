@@ -1,4 +1,5 @@
-#pragma once
+#ifndef KALMANFILTER_H
+#define KALMANFILTER_H
 
 class KalmanFilter {
 public:
@@ -24,3 +25,5 @@ private:
     float Q_bias;    // Process noise variance for gyro bias
     float R_measure; // Measurement noise variance
 };
+
+#endif

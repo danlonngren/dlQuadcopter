@@ -1,7 +1,5 @@
 #include "motor.h"
 
-#include <Arduino.h>
-
 // Include arduino PWM library
 #include <Arduino.h>
 // #include <wiring_analog.h>

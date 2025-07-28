@@ -1,0 +1,9 @@
+{
+  "name": "imu",
+  "version": "1.0.0",
+  "dependencies": [
+    {
+      "name": "kalmanFilter"
+    }
+  ]
+}

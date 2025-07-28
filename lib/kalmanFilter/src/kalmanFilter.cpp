@@ -1,4 +1,4 @@
-#include "KalmanFilter.h"
+#include "kalmanFilter.h"
 
 KalmanFilter::KalmanFilter() : 
     angle(0), 

@@ -2,28 +2,35 @@
 
 // Components
 #include "imu.h"
+#include "simplePIDController.h"
 #include "motor.h"
 #include "receiver.h"
 
 enum QuadcopterState {
     IDLE,
     RUNNING,
-	TAKEOFF
+	  TAKEOFF,
+    LANDING,
 };
 
 // Main control algorithm
 class Quadcopter {
-private:
-	QuadcopterState state;
 
 public:
-	Quadcopter(Imu& imuRef, Receiver& receiverRef, std::array<Motor, 4>& motor);
+	Quadcopter(Imu& imuRef, Receiver& receiverRef, MotorMixer& motor);
+
+  void init();
 
 	void startMainLoop();
 
 private:
-	bool m_isRunning;
-	Imu& m_imu;
-  	Receiver& m_receiver;
-	std::array<Motor, 4>& m_motors;
+  	QuadcopterState m_state;
+
+    bool m_isRunning;
+    Imu& m_imu;
+    Receiver& m_receiver;
+    MotorMixer& m_motors;
+    SimplePIDController m_pidRoll;
+    SimplePIDController m_pidPitch;
+    SimplePIDController m_pidYaw;
 };

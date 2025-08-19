@@ -2,7 +2,7 @@
 
 // Include arduino PWM library
 #include <Arduino.h>
-// #include <wiring_analog.h>
+
 
 Motor::Motor(uint8_t motorPin, 
             float pwmFreq,
@@ -65,4 +65,30 @@ void Motor::setMotorSpeed(int percentPower) {
     analogWrite(m_motorPin, dutyCycle);
 
     Serial.print("Set dutyCycle: " + String(dutyCycle) + ", for pin: " + String(m_motorPin) + "\n");
+}
+
+MotorMixer::MotorMixer(std::array<Motor, 4> motors)
+    : m_motors(motors) {}
+
+void MotorMixer::setOutputs(float throttle, float roll, float pitch, float yaw) {
+    std::array<float, 4> motorOutputs;
+
+    motorOutputs[0] = throttle + roll - pitch - yaw; // Front Left
+    motorOutputs[1] = throttle - roll - pitch + yaw; // Front Right
+    motorOutputs[2] = throttle - roll + pitch - yaw; // Rear Right
+    motorOutputs[3] = throttle + roll + pitch + yaw; // Rear Left
+
+    applyMotorLimits(motorOutputs);
+
+    // Send PWM signals
+    for (size_t i = 0; i < 4; ++i) {
+        m_motors[i].setMotorSpeed(static_cast<int>(motorOutputs[i]));
+    }
+}
+
+void MotorMixer::applyMotorLimits(std::array<float, 4>& outputs) {
+    for (auto& val : outputs) {
+        if (val < 0.0f) val = 0.0f;
+        if (val > 100.0f) val = 100.0f;
+    }
 }

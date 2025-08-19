@@ -31,6 +31,7 @@ Motor::Motor(uint8_t motorPin,
 
     // Setup the motor pins
     pinMode(motorPin, OUTPUT);
+
     // analogWriteFrequency(m_motorPin, pwmFreq); // Not available on nRF52840
     analogWriteResolution((uint32_t)pwmRes);
 

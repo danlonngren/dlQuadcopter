@@ -8,9 +8,15 @@
 #include "receiver.h"
 #include "motor.h"
 
-#include "controller.h"
+#include "quadcopter.h"	
 
 // #include "Adafruit_TinyUSB.h"
+
+Imu myImu;			   // Create an instance of the imu class
+Receiver receiver(3); // Create an instance of the Receiver class
+std::array<Motor, 4> motors = { Motor(1), Motor(2), Motor(3), Motor(4) };
+Quadcopter quadcopter(myImu, receiver, motors);
+
 
 void setup()
 {
@@ -29,24 +35,6 @@ void setup()
 
 void loop() {
 	Serial.println("Entering loop");
-	
-	Imu myImu;			   // Create an instance of the imu class
-	Receiver receiver(3); // Create an instance of the Receiver class
-	std::array<Motor, 4> motors = { Motor(1), Motor(2), Motor(3), Motor(4) };
-	Controller controller(myImu, receiver, motors);
 
-	while(true) {
-		myImu.updateAttitude(); // Update the IMU data
-		float roll = myImu.getAttitude().rpy.roll; // Get the roll value from the IMU
-		float pitch = myImu.getAttitude().rpy.pitch; // Get the pitch value from the IMU
-		float yaw = myImu.getAttitude().rpy.yaw; // Get the yaw value from the IMU
-
-		Serial.print("Roll: ");
-		Serial.print(roll, 3);
-		Serial.print(" Pitch: ");
-		Serial.print(pitch, 3);
-		Serial.print(" Yaw: ");
-		Serial.println(yaw, 3); // Print the roll, pitch, and yaw values to the serial monitor
-		delay(1);
-	}
+	quadcopter.startMainLoop();
 }

@@ -2,58 +2,80 @@
 
 #include <Arduino.h>
 
-using namespace std;
-
 // Define the static member variable
 Receiver* Receiver::m_instance = nullptr;
 
-Receiver::Receiver(uint8_t pin, uint32_t maxPulseWidth) :
-    m_pin(pin),
-    m_maxPulseWidth(maxPulseWidth),
-    m_startTime(0),
-    m_pulseWidth(0) {
+Receiver::Receiver(uint8_t pin, bool isCPPM, uint32_t maxPulseWidth) :
+    m_isCPPM(isCPPM), m_pin(pin), m_maxPulseWidth(maxPulseWidth),
+    m_lastTime(0), m_pulseWidth(0) {
 
-    // Set the static instance to this object
+    // Set the static instance to this object for interrupt handling
     m_instance = this;
 }
 
 Receiver::~Receiver() {
-    // Destructor
-    // No need to do anything here
+    detachInterrupt(digitalPinToInterrupt(m_pin));
+    m_instance = nullptr;
 }
 
 void Receiver::start() {
-    // Start the receiver
-
     pinMode(m_pin, INPUT);
-    attachInterrupt(digitalPinToInterrupt(m_pin), Receiver::receiverISR, CHANGE);
+    if (m_isCPPM)
+        attachInterrupt(digitalPinToInterrupt(m_pin), Receiver::receiverISR, RISING);
+    else
+        attachInterrupt(digitalPinToInterrupt(m_pin), Receiver::receiverISR, CHANGE);
 }
 
 uint32_t Receiver::getPulseWidth() const {
+    if (m_isCPPM) 
+        return 0;
+
     noInterrupts();
     uint32_t pulseWidth = m_pulseWidth;
     interrupts();
     return pulseWidth;
 }
 
+uint32_t Receiver::getCPPMChannel(uint8_t channel) const {
+    if (channel >= 8 || m_isCPPM == false) 
+        return 0;
+
+    noInterrupts();
+    uint32_t pulseWidth = m_channels[channel];
+    interrupts();
+    return pulseWidth;
+}
+
 void Receiver::handlePWM() {
-    unsigned long currentTime = micros();
-    int pinState = digitalRead(m_pin);
-    
+    uint32_t now = micros();
+    uint32_t pinState = digitalRead(m_pin);
+
     if (pinState == HIGH) {
-        m_startTime = currentTime;
-    }
-    else {
-        m_pulseWidth = currentTime - m_startTime;
-        // Limit the pulse width to a maximum of 2000 microseconds
-        if (m_pulseWidth > m_maxPulseWidth)
-            m_pulseWidth = m_maxPulseWidth;
+        m_lastTime = now;
+    } else {
+        uint32_t pw = now - m_lastTime;
+        if (pw <= m_maxPulseWidth)
+            m_pulseWidth = pw;
     }
 }
 
-void Receiver::receiverISR()
-{
-    // Call the handlePWM function to process the PWM signal
-    if (m_instance) 
+void Receiver::handleCPPM() {
+    uint32_t now = micros();
+    uint32_t pulseWidth = now - m_lastTime;
+    m_lastTime = now;
+
+    if (pulseWidth > 3000) 
+        m_channelCount = 0;
+    else if (m_channelCount < 8) 
+        m_channels[m_channelCount++] = pulseWidth;
+}
+
+void Receiver::receiverISR() {
+    if (!m_instance) 
+        return;
+
+    if (m_instance->m_isCPPM)
+        m_instance->handleCPPM();
+    else
         m_instance->handlePWM();
 }

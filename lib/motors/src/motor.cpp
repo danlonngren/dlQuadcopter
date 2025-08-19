@@ -9,9 +9,17 @@ Motor::Motor(uint8_t motorPin,
             PwmResolution pwmRes) :
     m_motorPin(motorPin),
     m_pwmFreq(pwmFreq),
-    m_maxResValue(0) {
+    m_maxResValue(0),
+    m_pwmRes(pwmRes)
+    {}
 
-    switch (pwmRes) {
+Motor::~Motor() {
+    analogWrite(m_motorPin, 0); // Stop the motor
+    pinMode(m_motorPin, INPUT); // Set the motor pin to input mode
+}
+
+void Motor::init() {
+    switch (m_pwmRes) {
         case PwmResolution::PWM_8BIT:
             m_maxResValue = 255; // 0-255
             break;
@@ -30,18 +38,13 @@ Motor::Motor(uint8_t motorPin,
     }
 
     // Setup the motor pins
-    pinMode(motorPin, OUTPUT);
+    pinMode(m_pwmRes, OUTPUT);
 
     // analogWriteFrequency(m_motorPin, pwmFreq); // Not available on nRF52840
-    analogWriteResolution((uint32_t)pwmRes);
+    analogWriteResolution((uint32_t)m_pwmRes);
 
     // Set initial speed to 0
     analogWrite(m_motorPin, 0);
-}
-
-Motor::~Motor() {
-    analogWrite(m_motorPin, 0); // Stop the motor
-    pinMode(m_motorPin, INPUT); // Set the motor pin to input mode
 }
 
 void Motor::setMotorSpeed(int percentPower) {
@@ -64,7 +67,7 @@ void Motor::setMotorSpeed(int percentPower) {
     // Set the new duty cycle
     analogWrite(m_motorPin, dutyCycle);
 
-    Serial.print("Set dutyCycle: " + String(dutyCycle) + ", for pin: " + String(m_motorPin) + "\n");
+    //Serial.print("Set dutyCycle: " + String(dutyCycle) + ", for pin: " + String(m_motorPin) + "\n");
 }
 
 MotorMixer::MotorMixer(std::array<Motor, 4> motors)

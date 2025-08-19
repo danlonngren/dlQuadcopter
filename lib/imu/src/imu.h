@@ -28,6 +28,9 @@ class Imu
 	public:
 		Imu();
 
+		// @brief Initialize hardware and IMU
+		void init();
+
 		// @brief Trigger IMU data update
 		const imuData& updateAttitude();
 		

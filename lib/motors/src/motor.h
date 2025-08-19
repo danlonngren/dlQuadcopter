@@ -19,12 +19,15 @@ class Motor {
                 
         ~Motor();
 
+        void init();
+
         void setMotorSpeed(int percentPower);
 
     private:
         uint8_t m_motorPin;
         float m_pwmFreq;
         int m_maxResValue;
+        PwmResolution m_pwmRes;
 };
 
 
@@ -36,6 +39,12 @@ class Motor {
 class MotorMixer {
 public:
     MotorMixer(std::array<Motor, 4> motors);
+
+    void init() {
+        for (auto& motor : m_motors) {
+            motor.init();
+        }
+    };
 
     void setOutputs(float throttle, float roll, float pitch, float yaw);
 

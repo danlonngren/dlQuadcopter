@@ -18,7 +18,7 @@ class Receiver {
          * @brief Destructor for the Receiver class.
          */
         ~Receiver();
-
+        
         /**
          * @brief Attaches the interrupt and starts monitoring for PWM signals.
          */
@@ -58,11 +58,12 @@ class Receiver {
         uint8_t m_channel;
         uint32_t m_maxPulseWidth;
 
-        volatile uint32_t m_lastTime;
+        volatile uint64_t m_lastTime;
         volatile uint32_t m_pulseWidth;
 
         // For CPPM
         volatile uint32_t m_channels[8];
+        volatile uint32_t m_channelsSafe[8];
         volatile uint32_t m_channelCount;
 
         // Static pointer to instance for the ISR

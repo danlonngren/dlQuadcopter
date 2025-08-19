@@ -21,10 +21,11 @@ const float IMU_DEG_TO_RAD = 0.0174533f;
 Imu::Imu() :
     m_imuAddress(MPU6050),
     m_axisCalibration{0.0, 0.0, 0.0},
-    m_attitude{0}
-{
-
+    m_attitude{0} {
     m_wire = &Wire;
+}
+
+void Imu::init() {
     m_wire->begin();
     m_wire->setClock(400000L);
     

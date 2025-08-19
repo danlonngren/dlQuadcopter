@@ -11,10 +11,7 @@
 #include "quadcopter.h"	
 
 
-Imu myImu;
-Receiver receiver(3);
-MotorMixer motorMixer({Motor(1), Motor(2), Motor(3), Motor(4)});
-Quadcopter quadcopter(myImu, receiver, motorMixer);
+Quadcopter quadcopter;
 
 
 void setup() {

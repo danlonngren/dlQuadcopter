@@ -17,7 +17,7 @@ enum QuadcopterState {
 class Quadcopter {
 
 public:
-	Quadcopter(Imu& imuRef, Receiver& receiverRef, MotorMixer& motor);
+	Quadcopter();
 
   void init();
 
@@ -27,9 +27,9 @@ private:
   	QuadcopterState m_state;
 
     bool m_isRunning;
-    Imu& m_imu;
-    Receiver& m_receiver;
-    MotorMixer& m_motors;
+    Imu m_imu;
+    Receiver m_receiver;
+    MotorMixer m_motors;
     SimplePIDController m_pidRoll;
     SimplePIDController m_pidPitch;
     SimplePIDController m_pidYaw;
